@@ -1,0 +1,89 @@
+#Bayesian hierarchical modelling
+#packages to use
+library(R2OpenBUGS)
+library(rjags)
+library(coda)
+library(MCMCvis)
+library(posterior)
+
+### Hierarchical Bayesian Model
+# Setup Model
+mod = function(){
+  #priors
+  b0~dnorm(0,.001)
+  mu.Z~dnorm(0,.001)
+  
+  sigma~dunif(0,50)
+  tau<-1/(sigma*sigma)
+  
+  varsigma~dunif(0,50)
+  tau.g<-1/(varsigma*varsigma)
+  
+  #likelihood
+  for(i in 1:length(Time)){
+    mu[i]<-b0+457*exp(-Z[Country[i]]*Time[i])
+    Price[i]~dnorm(mu[i], tau)
+    Price_pred[i]~dnorm(mu[i], tau)
+  }
+  for(j in 1:10){
+    Z[j]~dnorm(mu.Z, tau.g)
+  }
+}
+
+
+
+
+# write model
+model.file="model.txt"
+write.model(mod,model.file)
+
+# no initial values
+inits<-NULL
+
+# what parameters we want to track
+params = c("infected","EZK", "Country")
+
+## hyperparameters
+# number of iterations
+ni = 10000
+# burn in interval
+nb = 1000
+# thinning interval
+nt = 1
+# number of chains
+nc = 3
+
+
+# compile model
+jmod = jags.model(file = model.file, data = df, n.chains = nc, inits = inits, n.adapt = 1000)
+
+# iterate through jmod for the extent of the burn-in
+update(jmod, n.iter=nb, by=1)
+
+# draw samples from the posterior for params, given MCMC hyperparameters
+post = coda.samples(jmod, params, n.iter = ni, thin = nt)
+
+# diagnostic evaluation of posterior samples
+MCMCtrace(post, params = c('infected','EZK'), pdf=F)
+
+# objectively assess convergence with gelmans diagnostic
+gelman.diag(post)
+
+# get summary of posterior samples for two parameters
+MCMCsummary(post, params = c('infected','EZK'), digits=2)
+
+# get samples from posteriors
+samples = jags.samples(jmod,c('infected'), length(df$Time))
+
+# take the mean of each group of samples
+posterior_means = apply(samples$Price_pred,1,mean)
+
+# plot posterior means versus observed values
+plot(df$cost, posterior_means, ylab='infected', xlab='Observed status', cex.axis=1.1, cex.lab=1.2)
+lines(seq(1,3500),seq(1,3500), col='red', lwd=2, cex=3)
+
+
+
+
+
+
